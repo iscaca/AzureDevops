@@ -1,0 +1,125 @@
+trigger: none
+
+pool:
+  name: ''
+
+variables:
+  backendstrgrg: ''
+  backendstrg: ''
+  backendcontainer: ''
+  backendstrgkey: ''
+
+stages:
+  - stage: 'CleanUp'
+    displayName: 'Cleanup Workspace'
+    jobs:
+    - job: 'CleanupJob'
+      displayName: 'Cleanup Job'
+      steps:
+      - checkout: self
+        clean: true
+
+  - stage: TerraformInitandPlan
+    displayName: 'Terraform Plan'
+    jobs:
+      - job: RunTerraformPlan
+        displayName: 'Run Terraform Init and Plan'
+        steps:
+
+        - checkout: self
+          displayName: 'Checkout the latest code'
+
+        - task: TerraformTaskV4@4
+          inputs:
+            provider: 'azurerm'
+            command: 'init'
+            workingDirectory: '$(System.DefaultWorkingDirectory)/'
+            backendServiceArm: ''
+            backendAzureRmStorageAccountName: ''
+            backendAzureRmResourceGroupName: ''
+            backendAzureRmContainerName: ''
+            backendAzureRmKey: ''
+
+        - task: AzureKeyVault@2
+          inputs:
+            azureSubscription: ''
+            KeyVaultName: ''
+            SecretsFilter: ''
+            RunAsPreJob: true
+        - task: AzureKeyVault@2
+          inputs:
+            azureSubscription: ''
+            KeyVaultName: ''
+            SecretsFilter: ''
+            RunAsPreJob: true
+
+        - task: TerraformTaskV4@4
+          inputs:
+            provider: 'azurerm'
+            command: 'plan'
+            workingDirectory: '$(System.DefaultWorkingDirectory)/'
+            environmentServiceNameAzureRM: ''
+            commandOptions: '-out=$(Build.ArtifactStagingDirectory)/tfplan -var-file="variables.tfvars'
+
+        - script: |
+            terraform show -json $(Build.ArtifactStagingDirectory)/tfplan > $(Build.ArtifactStagingDirectory)/tfplan.json
+          workingDirectory: '$(System.DefaultWorkingDirectory)/'
+        - script: |
+            cat $(Build.ArtifactStagingDirectory)/tfplan.json | jq '.resource_changes[] | select(.change.actions | index("create"))' > $(Build.ArtifactStagingDirectory)/creates.json
+            cat $(Build.ArtifactStagingDirectory)/tfplan.json | jq '.resource_changes[] | select(.change.actions | index("update"))' > $(Build.ArtifactStagingDirectory)/creates.json
+            cat $(Build.ArtifactStagingDirectory)/tfplan.json | jq '.resource_changes[] | select(.change.actions | index("delete"))' > $(Build.ArtifactStagingDirectory)/creates.json
+
+        - task: PublishBuildArtifact@1
+          inputs:
+            PathtoPublish: '$(Build.ArtifactStagingDirectory)'
+            ArtifactName: 'TerraformPlanArtifacts'
+            publishLocations: 'Container'
+
+  - stage: Approval
+    displayName: 'Approval Stage'
+    dependsOn: TerraformInitandPlan
+    condition: succeeded('TerraformInitandPlan')
+    jobs:
+    - deployment: 'ApprovalJob'
+      displayName: 'Approval Job'
+      environment: 'approval-environment'
+      strategy:
+        runOnce:
+          deploy:
+            steps:
+            - checkout: none
+            - download: current
+              artifact: TerraformPlanArtifacts
+
+            - task: TerraformTaskV4@4
+              inputs:
+                provider: 'azurerm'
+                command: 'init'
+                workingDirectory: '$(System.DefaultWorkingDirectory)/'
+                backendServiceArm: ''
+                backendAzureRmStorageAccountName: ''
+                backendAzureRmResourceGroupName: ''
+                backendAzureRmContainerName: ''
+                backendAzureRmKey: ''
+
+            - task: AzureKeyVault@2
+              inputs:
+                azureSubscription: ''
+                KeyVaultName: ''
+                SecretsFilter: ''
+                RunAsPreJob: true
+            - task: AzureKeyVault@2
+              inputs:
+                azureSubscription: ''
+                KeyVaultName: ''
+                SecretsFilter: ''
+                RunAsPreJob: true
+            
+            - task: TerraformTaskV4@4
+              displayName: 'Terraform Apply'
+              inputs:
+                provider: 'azurerm'
+                command: 'apply'
+                commandOptions: '-auto-approve -var-file="variable.tfvars"'
+                workingDirectory: '$(System.DefaultWorkingDirectory)/'
+                environmentServiceNameAzureRM: ''
