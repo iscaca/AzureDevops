@@ -26,7 +26,7 @@ The pipeline is integrated with Terraform to manage Azure resources. It follows 
 Pipeline Stages
 
 1.CleanUp: 
--Removes previous builds to maintain a clean workspace.
+-Removes previous builds to maintain a clean workspace with a bash script in cleanUp stage
 
 2.TerraformInitandPlan:
 -Initializes Terraform.
