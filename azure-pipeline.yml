@@ -19,6 +19,21 @@ stages:
       - checkout: self
         clean: true
 
+      # Custom script step to delete numeric folders
+      - script: |
+          #!/bin/bash
+          echo "Starting cleanup of numeric folders in /opt/myagent/_work/"
+          FOLDER_PATH="/opt/myagent/_work/"
+          for item in "$FOLDER_PATH"/*; do
+              if [ -d "$item" ] && [[ $(basename "$item") =~ ^[0-9]+$ ]]; then
+                  echo "Deleting folder: $item"
+                  rm -rf "$item"
+              fi
+          done
+          echo "Cleanup completed"
+        displayName: 'Delete Numeric Folders'
+        continueOnError: true
+
   - stage: TerraformInitandPlan
     displayName: 'Terraform Plan'
     jobs:
